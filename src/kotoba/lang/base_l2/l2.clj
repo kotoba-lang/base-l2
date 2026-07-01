@@ -16,10 +16,21 @@
   key itself). See the repo README's \"Clojure/CLJC port\" section for
   the full CLJS-scope writeup.
 
-  RPC transport: `kotoba.lang.base-l2.rpc` (hand-rolled JSON-RPC-over-HTTP,
-  babashka.http-client + cheshire). ABI encode/decode:
-  `kotoba.lang.base-l2.abi` (hand-rolled, narrow). Crypto (Keccak-256,
-  secp256k1 signing, RLP, EIP-155 legacy tx serialization):
+  RPC transport: `kotoba.lang.base-l2.rpc` -- a pure JSON-RPC-over-HTTP
+  core over an injected `kotoba.lang.base-l2.rpc/ITransport` (host
+  supplies e.g. a `babashka.http-client`-backed adapter; this namespace
+  and `rpc.clj` carry zero HTTP-client dep themselves). `AnchorClient`
+  carries the transport alongside `rpc-url`/`contract`/`private-key` --
+  every call below reads `:transport` off `client` rather than taking it
+  as a separate argument, since `client` is already the natural
+  connection-bundle abstraction here (see `make-anchor-client`). The two
+  module-level convenience functions (`submit-mst-root!` /
+  `lookup-anchor-for-root`) don't carry a client, so they take
+  `transport` as an explicit leading argument instead (mirroring
+  `kotoba.lang.ipfs`'s `(pin-blob http api-url content)` convention).
+
+  ABI encode/decode: `kotoba.lang.base-l2.abi` (hand-rolled, narrow).
+  Crypto (Keccak-256, secp256k1 signing, RLP, EIP-155 legacy tx serialization):
   `eth-crypto.core` (`kotoba-lang/eth-crypto`, a sibling dependency-free
   Clojure library already verified against EIP-712/EIP-155 spec vectors
   -- reused here rather than hand-rolling elliptic-curve crypto a second
@@ -68,17 +79,23 @@
 
 ;; ─── AnchorClient ──────────────────────────────────────────────────────
 
-(defrecord AnchorClient [rpc-url contract private-key address])
+(defrecord AnchorClient [transport rpc-url contract private-key address])
 
 (defn make-anchor-client
   "Analog of `new AnchorClient(cfg)`. `cfg` is
-  `{:rpc-url \"http://…\" :contract \"0x…\" :private-key \"0x…\"}`.
-  `:private-key` may be omitted for a READ-ONLY client (`root-count` /
-  `find-anchor-for-root` never need a key; calling `anchor-mst-root!` on
-  a keyless client throws)."
-  [{:keys [rpc-url contract private-key]}]
+  `{:transport an-ITransport :rpc-url \"http://…\" :contract \"0x…\"
+  :private-key \"0x…\"}`. `:transport` must satisfy
+  `kotoba.lang.base-l2.rpc/ITransport` (e.g. a `babashka.http-client`-backed
+  adapter) -- required even for a read-only client, since every call
+  (reads included) goes over RPC. `:private-key` may be omitted for a
+  READ-ONLY client (`root-count` / `find-anchor-for-root` never need a
+  key; calling `anchor-mst-root!` on a keyless client throws)."
+  [{:keys [transport rpc-url contract private-key]}]
+  (when-not transport
+    (throw (ex-info "[kotoba.lang.base-l2.l2] make-anchor-client requires a :transport (satisfies kotoba.lang.base-l2.rpc/ITransport)"
+                     {:rpc-url rpc-url :contract contract})))
   (let [pk-bytes (when private-key (eth/hex->bytes private-key))]
-    (->AnchorClient rpc-url contract pk-bytes
+    (->AnchorClient transport rpc-url contract pk-bytes
                     (when pk-bytes (eth/address-of-privkey pk-bytes)))))
 
 (defn- ipfs-cid->hex ^String [ipfs-cid]
@@ -100,22 +117,22 @@
   \"success\"`)."
   ([client root-hash ipfs-cid batch-size] (anchor-mst-root! client root-hash ipfs-cid batch-size {}))
   ([client root-hash ipfs-cid batch-size opts]
-   (let [{:keys [rpc-url contract private-key address]} client]
+   (let [{:keys [transport rpc-url contract private-key address]} client]
      (when-not private-key
        (throw (ex-info "[kotoba.lang.base-l2.l2] anchor-mst-root! requires a client with a :private-key"
                         {:contract contract})))
      (let [calldata (abi/encode-function-call "anchor(bytes32,bytes,uint64)"
                                                ["bytes32" "bytes" "uint64"]
                                                [root-hash (ipfs-cid->hex ipfs-cid) batch-size])
-           nonce (or (:nonce opts) (rpc/eth-get-transaction-count rpc-url address))
-           gas-price (or (:gas-price opts) (rpc/eth-gas-price rpc-url))
-           chain-id (or (:chain-id opts) (rpc/eth-chain-id rpc-url))
-           gas (or (:gas opts) (rpc/eth-estimate-gas rpc-url {:from address :to contract :data calldata}))
+           nonce (or (:nonce opts) (rpc/eth-get-transaction-count transport rpc-url address))
+           gas-price (or (:gas-price opts) (rpc/eth-gas-price transport rpc-url))
+           chain-id (or (:chain-id opts) (rpc/eth-chain-id transport rpc-url))
+           gas (or (:gas opts) (rpc/eth-estimate-gas transport rpc-url {:from address :to contract :data calldata}))
            raw-tx (eth/sign-tx-legacy {:nonce nonce :gas-price gas-price :gas gas
                                         :to contract :data calldata :chain-id chain-id}
                                        private-key)
-           tx-hash (rpc/eth-send-raw-transaction rpc-url raw-tx)
-           receipt (rpc/wait-for-transaction-receipt rpc-url tx-hash (select-keys opts [:interval-ms :timeout-ms]))]
+           tx-hash (rpc/eth-send-raw-transaction transport rpc-url raw-tx)
+           receipt (rpc/wait-for-transaction-receipt transport rpc-url tx-hash (select-keys opts [:interval-ms :timeout-ms]))]
        (when (not= "0x1" (:status receipt))
          (throw (ex-info (str "[kotoba.lang.base-l2.l2] anchor tx reverted: " tx-hash)
                           {:tx-hash tx-hash :receipt receipt})))
@@ -125,9 +142,9 @@
   "Read the global anchor count (analog of `AnchorClient#rootCount`).
   Returns a BigInteger."
   [client]
-  (let [{:keys [rpc-url contract]} client
+  (let [{:keys [transport rpc-url contract]} client
         calldata (abi/encode-function-call "rootCount()" [] [])
-        result (rpc/eth-call rpc-url contract calldata)]
+        result (rpc/eth-call transport rpc-url contract calldata)]
     (first (abi/decode-function-result ["uint256"] result))))
 
 (defn find-anchor-for-root
@@ -136,9 +153,9 @@
   `AnchorClient#findAnchorForRoot`). Read-only -- `client` need not carry
   a private key."
   [client root-hash]
-  (let [{:keys [rpc-url contract]} client
+  (let [{:keys [transport rpc-url contract]} client
         calldata (abi/encode-function-call "anchors(bytes32)" ["bytes32"] [root-hash])
-        result (rpc/eth-call rpc-url contract calldata)
+        result (rpc/eth-call transport rpc-url contract calldata)
         [_root-hash _ipfs-cid block-number anchorer batch-size anchored-at]
         (abi/decode-function-result ["bytes32" "bytes" "uint256" "address" "uint64" "uint64"] result)]
     (when-not (zero? block-number)
@@ -154,15 +171,22 @@
   contract, rootCid, signer, ipfsCidBytes?, batchSize?)`. If `root-cid`
   is already a `0x…` 32-byte hex digest it's used as-is for `root-hash`;
   otherwise `root-hash` = `keccak256(utf8 root-cid)`, matching `l2.ts`.
-  `private-key` is a `0x…` 32-byte hex string."
-  ([rpc-url contract root-cid private-key]
-   (submit-mst-root! rpc-url contract root-cid private-key nil 1 {}))
-  ([rpc-url contract root-cid private-key ipfs-cid-bytes]
-   (submit-mst-root! rpc-url contract root-cid private-key ipfs-cid-bytes 1 {}))
-  ([rpc-url contract root-cid private-key ipfs-cid-bytes batch-size]
-   (submit-mst-root! rpc-url contract root-cid private-key ipfs-cid-bytes batch-size {}))
-  ([rpc-url contract root-cid private-key ipfs-cid-bytes batch-size opts]
-   (let [client (make-anchor-client {:rpc-url rpc-url :contract contract :private-key private-key})
+  `private-key` is a `0x…` 32-byte hex string.
+
+  Doesn't carry a client (there's nothing to bundle it into), so unlike
+  `anchor-mst-root!`/`root-count`/`find-anchor-for-root` this takes
+  `transport` as an explicit leading argument (mirroring
+  `kotoba.lang.ipfs`'s `(pin-blob http api-url content)` convention) --
+  a required addition vs. the pre-retrofit signature, since there is no
+  more embedded default HTTP client to fall back to."
+  ([transport rpc-url contract root-cid private-key]
+   (submit-mst-root! transport rpc-url contract root-cid private-key nil 1 {}))
+  ([transport rpc-url contract root-cid private-key ipfs-cid-bytes]
+   (submit-mst-root! transport rpc-url contract root-cid private-key ipfs-cid-bytes 1 {}))
+  ([transport rpc-url contract root-cid private-key ipfs-cid-bytes batch-size]
+   (submit-mst-root! transport rpc-url contract root-cid private-key ipfs-cid-bytes batch-size {}))
+  ([transport rpc-url contract root-cid private-key ipfs-cid-bytes batch-size opts]
+   (let [client (make-anchor-client {:transport transport :rpc-url rpc-url :contract contract :private-key private-key})
          root-hash (if (and (str/starts-with? root-cid "0x") (= 66 (count root-cid)))
                      root-cid
                      (str "0x" (eth/bytes->hex (eth/keccak256 (eth/utf8 root-cid)))))
@@ -174,7 +198,10 @@
   contract, rootHash)`. Read-only -- no private key needed (the TS
   version constructs an `AnchorClient` with an all-zero dummy key purely
   to reuse the class; this port's `find-anchor-for-root` never needed a
-  key in the first place)."
-  [rpc-url contract root-hash]
-  (when-let [found (find-anchor-for-root (make-anchor-client {:rpc-url rpc-url :contract contract}) root-hash)]
+  key in the first place).
+
+  Takes `transport` as an explicit leading argument, same reasoning as
+  `submit-mst-root!` above."
+  [transport rpc-url contract root-hash]
+  (when-let [found (find-anchor-for-root (make-anchor-client {:transport transport :rpc-url rpc-url :contract contract}) root-hash)]
     {:block-number (:block-number found) :anchorer (:tx-anchorer-address found)}))

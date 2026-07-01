@@ -2,7 +2,10 @@
   "JVM-only: exercises kotoba.lang.base-l2.l2 against a real,
   dependency-free mock JSON-RPC HTTP server (com.sun.net.httpserver.HttpServer,
   part of the JDK -- same technique kotoba-lang/ipfs's test suite uses;
-  babashka cannot load this class, hence `clojure -M:test`, not `bb`).
+  babashka cannot load this class, hence `clojure -M:test`, not `bb`), via
+  the reference `kotoba.lang.base-l2.jvm-http-transport` `ITransport`
+  adapter (`babashka.http-client`-backed) -- a real end-to-end socket
+  round-trip through the injected-transport core, not a fake.
 
   The write-path (`anchor-mst-root!`) known-answer test reuses
   test/resources/base_l2/eth-vectors.json's \"anchor\" case: a raw
@@ -13,24 +16,31 @@
   produces byte-identical output to viem for a real anchor() call. The
   read-path (`root-count` / `find-anchor-for-root`) tests reuse
   test/resources/base_l2/abi-vectors.json's own viem-generated
-  `decodeFunctionResult` fixtures."
+  `decodeFunctionResult` fixtures.
+
+  See `kotoba.lang.base-l2.rpc-test` for lighter-weight, no-real-network
+  unit coverage of the same rpc.clj JSON-RPC envelope logic against a
+  fake `ITransport`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [clojure.java.io :as io]
-            [cheshire.core :as json]
+            [clojure.data.json :as json]
             [kotoba.lang.base-l2.l2 :as l2]
             [kotoba.lang.base-l2.rpc :as rpc]
             [kotoba.lang.base-l2.abi :as abi]
+            [kotoba.lang.base-l2.jvm-http-transport :as jvm-http]
             [eth-crypto.core :as eth])
   (:import [com.sun.net.httpserver HttpServer HttpHandler HttpExchange]
            [java.net InetSocketAddress]
            [java.io ByteArrayOutputStream]))
 
 (def ^:private eth-vectors
-  (json/parse-string (slurp (io/resource "base_l2/eth-vectors.json")) true))
+  (json/read-str (slurp (io/resource "base_l2/eth-vectors.json")) :key-fn keyword))
 
 (def ^:private abi-vectors
-  (json/parse-string (slurp (io/resource "base_l2/abi-vectors.json")) true))
+  (json/read-str (slurp (io/resource "base_l2/abi-vectors.json")) :key-fn keyword))
+
+(def ^:private transport (jvm-http/make-transport))
 
 (def ^:private anchor-vector (first (filter #(= (:label %) "anchor") eth-vectors)))
 (def ^:private pk-hex (:pk (first (filter #(= (:label %) "address") eth-vectors))))
@@ -53,7 +63,7 @@
       (.write os bytes))))
 
 (defn- rpc-response [id result]
-  (json/generate-string {:jsonrpc "2.0" :id id :result result}))
+  (json/write-str {:jsonrpc "2.0" :id id :result result}))
 
 ;; Each test `reset!`s handler-atom to `(fn [method params] result)`, dispatching
 ;; on the JSON-RPC method name -- this lets one mock HTTP server stand in
@@ -73,7 +83,7 @@
 
 (defn- mock-rpc-handler [^HttpExchange exchange]
   (let [body (String. (slurp-bytes (.getRequestBody exchange)) "UTF-8")
-        {:keys [id method params]} (json/parse-string body true)
+        {:keys [id method params]} (json/read-str body :key-fn keyword)
         result (@handler-atom method params)]
     (respond! exchange 200 (rpc-response id result))))
 
@@ -102,7 +112,7 @@
                       "eth_getTransactionReceipt" {:status "0x1" :blockNumber "0x2a"}
                       (throw (ex-info (str "unexpected RPC method in this test: " method) {:method method}))))]
       (reset! handler-atom handler)
-      (let [client (l2/make-anchor-client {:rpc-url *base-url* :contract contract-addr :private-key pk-hex})
+      (let [client (l2/make-anchor-client {:transport transport :rpc-url *base-url* :contract contract-addr :private-key pk-hex})
             result (l2/anchor-mst-root! client root-hash ipfs-cid-hex 42
                                         {:nonce nonce :gas-price (->bi gasPrice) :gas (->bi gas) :chain-id chainId})]
         (is (= (:signed anchor-vector) @sent-raw-tx)
@@ -133,7 +143,7 @@
                       "eth_getTransactionReceipt" {:status "0x1" :blockNumber "0x1"}
                       (throw (ex-info (str "unexpected RPC method in this test: " method) {:method method}))))]
       (reset! handler-atom handler)
-      (let [client (l2/make-anchor-client {:rpc-url *base-url* :contract contract-addr :private-key pk-hex})
+      (let [client (l2/make-anchor-client {:transport transport :rpc-url *base-url* :contract contract-addr :private-key pk-hex})
             result (l2/anchor-mst-root! client root-hash ipfs-cid-hex 42)]
         (is (= expected-raw @sent-raw-tx))
         (is (= expected-hash (:tx-hash result)))))))
@@ -149,14 +159,14 @@
                       "eth_getTransactionReceipt" {:status "0x0" :blockNumber "0x2a"}
                       (throw (ex-info (str "unexpected method " method) {}))))]
       (reset! handler-atom handler)
-      (let [client (l2/make-anchor-client {:rpc-url *base-url* :contract contract-addr :private-key pk-hex})]
+      (let [client (l2/make-anchor-client {:transport transport :rpc-url *base-url* :contract contract-addr :private-key pk-hex})]
         (is (thrown? clojure.lang.ExceptionInfo
                      (l2/anchor-mst-root! client root-hash ipfs-cid-hex 42
                                           {:nonce nonce :gas-price (->bi gasPrice) :gas (->bi gas) :chain-id chainId})))))))
 
 (deftest anchor-mst-root-requires-private-key-test
   (testing "throws when called on a read-only (keyless) client"
-    (let [client (l2/make-anchor-client {:rpc-url *base-url* :contract contract-addr})]
+    (let [client (l2/make-anchor-client {:transport transport :rpc-url *base-url* :contract contract-addr})]
       (is (thrown? clojure.lang.ExceptionInfo
                    (l2/anchor-mst-root! client "0x00" "0x00" 1))))))
 
@@ -167,7 +177,7 @@
                       "eth_call" (get-in abi-vectors [:decodeFunctionResult :rootCount :data])
                       (throw (ex-info (str "unexpected method " method) {}))))]
       (reset! handler-atom handler)
-      (let [client (l2/make-anchor-client {:rpc-url *base-url* :contract contract-addr})]
+      (let [client (l2/make-anchor-client {:transport transport :rpc-url *base-url* :contract contract-addr})]
         (is (= 12345N (bigint (l2/root-count client))))))))
 
 (deftest find-anchor-for-root-anchored-test
@@ -177,7 +187,7 @@
                       "eth_call" (get-in abi-vectors [:decodeFunctionResult :anchors :data])
                       (throw (ex-info (str "unexpected method " method) {}))))]
       (reset! handler-atom handler)
-      (let [client (l2/make-anchor-client {:rpc-url *base-url* :contract contract-addr})
+      (let [client (l2/make-anchor-client {:transport transport :rpc-url *base-url* :contract contract-addr})
             found (l2/find-anchor-for-root client (str "0x" (apply str (repeat 32 "22"))))]
         (is (some? found))
         (is (= 999N (bigint (:block-number found))))
@@ -202,7 +212,7 @@
                       "eth_call" zero-return
                       (throw (ex-info (str "unexpected method " method) {}))))]
       (reset! handler-atom handler)
-      (let [client (l2/make-anchor-client {:rpc-url *base-url* :contract contract-addr})]
+      (let [client (l2/make-anchor-client {:transport transport :rpc-url *base-url* :contract contract-addr})]
         (is (nil? (l2/find-anchor-for-root client (str "0x" (apply str (repeat 32 "00"))))))))))
 
 (deftest submit-mst-root-derives-keccak-root-hash-test
@@ -223,7 +233,7 @@
                       "eth_getTransactionReceipt" {:status "0x1" :blockNumber "0x1"}
                       (throw (ex-info (str "unexpected method " method) {}))))]
       (reset! handler-atom handler)
-      (l2/submit-mst-root! *base-url* contract-addr root-cid pk-hex)
+      (l2/submit-mst-root! transport *base-url* contract-addr root-cid pk-hex)
       ;; Confirm the raw tx actually sent used our independently-derived
       ;; root-hash + calldata, by re-signing the same fields and comparing.
       (let [reconstructed (eth/sign-tx-legacy {:nonce 0 :gas-price 1000000000 :gas 100000

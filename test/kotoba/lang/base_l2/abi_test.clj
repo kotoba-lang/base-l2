@@ -10,13 +10,13 @@
   dump the results with `JSON.stringify`."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
-            [cheshire.core :as json]
+            [clojure.data.json :as json]
             [clojure.java.io :as io]
             [kotoba.lang.base-l2.abi :as abi]
             [eth-crypto.core :as eth]))
 
 (def ^:private vectors
-  (json/parse-string (slurp (io/resource "base_l2/abi-vectors.json")) true))
+  (json/read-str (slurp (io/resource "base_l2/abi-vectors.json")) :key-fn keyword))
 
 (defn- hex= [a b] (= (str/lower-case a) (str/lower-case b)))
 

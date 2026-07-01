@@ -43,7 +43,8 @@ npm run build
 
 `src/kotoba/lang/base_l2/{abi,rpc,l2,paymaster}.clj` is the Clojure port of
 `l2.ts`/`paymaster.ts`, following the pattern established by
-`kotoba-lang/ipfs` in this same porting wave.
+`kotoba-lang/ipfs` in this same porting wave: a **pure core over an
+injected transport**, zero vendor/HTTP-client dep in `src/`.
 
 ### Scoping the actual on-chain surface
 
@@ -63,21 +64,71 @@ only ever touch a narrow slice of it:
   `waitForUserOperationReceipt`) — it never signs anything itself; the
   ERC-4337 UserOperation signing happens inside the injected `SmartAccount`.
 
-### RPC transport: Option A (hand-rolled JSON-RPC), not a viem/web3j-style library
+### RPC transport: hand-rolled JSON-RPC, PURE core over an injected `ITransport`
 
 The transport is a ~150-line hand-rolled JSON-RPC-over-HTTP client
-(`kotoba.lang.base-l2.rpc`, `babashka.http-client` + `cheshire`, the same
-stack `kotoba-lang/ipfs` uses) exposing exactly the 7 `eth_*` methods this
+(`kotoba.lang.base-l2.rpc`) exposing exactly the 7 `eth_*` methods this
 SDK slice calls (`eth_call`, `eth_sendRawTransaction`,
 `eth_getTransactionReceipt`, `eth_getTransactionCount`, `eth_gasPrice`,
-`eth_chainId`, `eth_estimateGas`). ABI encode/decode
-(`kotoba.lang.base-l2.abi`) is likewise hand-rolled but narrow: it supports
-flat argument lists of `uintN`/`intN`/`address`/`bool`/`bytesN`/`bytes`/
-`string` (covering every call this SDK makes, including
-`paymaster.ts`'s own docstring example `join(bytes32, string)`) and
-explicitly does **not** implement arrays or tuples/structs — out of scope
-because nothing in this SDK's surface needs them (see the namespace
-docstring for the exact boundary and how to extend it).
+`eth_chainId`, `eth_estimateGas`) — but, following the design
+`kotoba-lang/ipfs` established for `kotoba.lang.ipfs/IHttp` in this same
+porting wave, it performs **zero network I/O itself**. `rpc.clj` defines
+`ITransport`, a host-injected transport protocol:
+
+```clojure
+(defprotocol ITransport
+  (-post [this url body] "POST the JSON string `body` to `url`. => {:status Int :body String}."))
+```
+
+Unlike `IHttp` (3 methods — Kubo's REST-ish HTTP API needs distinct
+GET/POST/multipart-POST shapes), JSON-RPC-over-HTTP has exactly ONE wire
+shape (POST a JSON request, get a JSON response), so `ITransport` is a
+single method. `rpc.clj` builds every JSON-RPC 2.0 envelope, detects
+`:error` objects, and extracts `:result` — the host only moves bytes.
+JSON encode/decode uses `clojure.data.json` (the same minimal,
+dependency-free choice `kotoba-lang/ipfs` makes) — that stays IN the pure
+core, unlike the HTTP client, because the JSON-RPC wire format demands it
+no matter what moves the bytes. **`src/`'s `deps.edn` entry carries zero
+HTTP-client dependency** — `org.babashka/http-client` moved to the
+`:test` alias, backing a reference `ITransport` adapter
+(`test/kotoba/lang/base_l2/jvm_http_transport.clj`) used only to prove
+the injection point works end-to-end against a real mock JSON-RPC HTTP
+server in `l2-test`. A real consumer (e.g. the `anchor-cron` K8s CronJob)
+supplies its own `ITransport` the same way.
+
+`kotoba.lang.base_l2.l2/AnchorClient` carries the transport alongside
+`rpc-url`/`contract`/`private-key` (`make-anchor-client`'s `cfg` map
+gains a required `:transport` key) — every client-based call
+(`anchor-mst-root!`/`root-count`/`find-anchor-for-root`) reads it off
+`client` rather than taking it as a separate argument, since `client` is
+already the natural connection bundle here. The two module-level
+convenience functions that DON'T carry a client — `submit-mst-root!` /
+`lookup-anchor-for-root` — take `transport` as an explicit new leading
+argument instead (mirroring `kotoba.lang.ipfs`'s `(pin-blob http api-url
+content)` convention); this is the one public-API signature change this
+retrofit makes, and it's inherent to removing the embedded default HTTP
+client — there's no more default to fall back to, so the caller must
+supply one. `rpc.clj`'s own `eth-*` functions all take `transport` first
+too, for the same reason.
+
+ABI encode/decode (`kotoba.lang.base-l2.abi`) is likewise hand-rolled but
+narrow, and needed **no changes** for this retrofit — it was already pure
+(no I/O of any kind). It supports flat argument lists of
+`uintN`/`intN`/`address`/`bool`/`bytesN`/`bytes`/`string` (covering every
+call this SDK makes, including `paymaster.ts`'s own docstring example
+`join(bytes32, string)`) and explicitly does **not** implement arrays or
+tuples/structs — out of scope because nothing in this SDK's surface needs
+them (see the namespace docstring for the exact boundary and how to
+extend it).
+
+`kotoba.lang.base-l2.paymaster` also needed **no changes**: it never did
+its own HTTP in the first place — `sponsored-write-contract!` only
+ABI-encodes calldata and hands it to the caller-injected `Bundler`
+(`send-user-operation!` / `wait-for-user-op-receipt!`) and `SmartAccount`
+protocols, so it was already a pure orchestration layer over injected
+dependencies (see the namespace docstring's "WHY THIS MODULE NEVER SIGNS
+ANYTHING ITSELF" section) — a good model this retrofit brought `rpc.clj`
+in line with, rather than something that itself needed retrofitting.
 
 ### Crypto: reuse `kotoba-lang/eth-crypto`, not BouncyCastle/web3j
 
@@ -163,16 +214,23 @@ loadable from babashka's restricted classlist, same constraint
 clojure -M:test
 ```
 
-18 tests / 76 assertions across 3 namespaces: `abi-test` (every ABI
-encode/decode case against viem-generated vectors), `l2-test` (the full
-`anchor-mst-root!` write path against a mock RPC server, including a
+29 tests / 103 assertions across 4 namespaces: `abi-test` (every ABI
+encode/decode case against viem-generated vectors, unchanged by this
+retrofit), `rpc-test` (NEW — unit tests for the pure JSON-RPC envelope
+logic in `rpc.clj` — request construction, `:error` detection, `:result`
+extraction, every `eth-*` wrapper, and `wait-for-transaction-receipt`'s
+polling/timeout — against a fake in-memory `ITransport`, no real socket),
+`l2-test` (the full `anchor-mst-root!` write path against a *real* mock
+JSON-RPC HTTP server reached through the reference
+`babashka.http-client`-backed `jvm-http-transport` adapter — proving the
+injection point works end-to-end over an actual socket, including a
 byte-exact raw-transaction comparison to viem's own signed output for a
 real `anchor()` call; `root-count`/`find-anchor-for-root` reads; the
 revert-throws and no-private-key-throws error paths), and
 `paymaster-test` (`sponsored-write-contract!` against in-memory fake
 `Bundler`/`SmartAccount` implementations, since the real bundler/paymaster
 are dependency-injected by the caller in both the TS and the Clojure
-version).
+version — unchanged by this retrofit, `paymaster.clj` needed none).
 
 `clj-kondo --lint src test` is clean (0 errors, 0 warnings).
 
