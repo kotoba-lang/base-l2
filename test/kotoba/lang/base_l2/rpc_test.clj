@@ -1,5 +1,16 @@
 (ns kotoba.lang.base-l2.rpc-test
-  "Unit tests for the pure kotoba.lang.base-l2.rpc JSON-RPC envelope logic
+  "JVM tests for kotoba.lang.base-l2.rpc. The source is portable `.cljc`
+  (JVM + CLJS) except its `Thread/sleep`-blocking
+  `wait-for-transaction-receipt`, which is `#?(:clj ...)`-gated and JVM-only
+  (see the source namespace's docstring); this test file stays `.clj`
+  rather than `.cljc` -- there is no CLJS test runner in this repo (nor in
+  any sibling `kotoba-lang` repo with a portable `.cljc` source, e.g.
+  `kotoba.lang.ipfs`/`kotoba.lang.atproto-client`, which follow the same
+  convention: JVM-only tests exercising the `:clj` branch; a CLJS
+  consumer's own async poll loop over `eth-get-transaction-receipt` would
+  be covered by host-side integration tests, not here).
+
+  Unit tests for the pure kotoba.lang.base-l2.rpc JSON-RPC envelope logic
   (request construction, :error detection, :result extraction, the
   eth_* method wrappers, and wait-for-transaction-receipt's polling)
   against a FAKE in-memory ITransport -- no real socket, no JDK

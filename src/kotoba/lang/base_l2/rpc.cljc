@@ -14,11 +14,9 @@
   wire. The library itself performs ZERO network I/O and carries ZERO
   HTTP-client/vendor dep -- `babashka.http-client` (or any other HTTP
   lib) is the HOST's dependency for a reference adapter, not this pure
-  core's. `clojure.data.json` (a small, dependency-free JSON lib -- same
-  choice `kotoba.lang.ipfs` makes) is used for the JSON-RPC envelope
-  itself, which is genuinely part of the pure core (unlike an HTTP
-  client, `eth_*`'s wire format demands JSON encode/decode no matter what
-  moves the bytes).
+  core's. JSON is via `clojure.data.json` (JVM) / `js/JSON` (CLJS) --
+  data-only, policy-fine (same split `kotoba.lang.ipfs` makes) -- behind
+  the `write-json`/`read-json-kw` reader-conditional shims below.
 
   Unlike `kotoba.lang.ipfs/IHttp` (3 methods: `-get`/`-post`/`-post-file`,
   because Kubo's REST-ish HTTP API needs those distinct shapes),
@@ -26,10 +24,23 @@
   a single endpoint, get a JSON body back -- so `ITransport` below is a
   single method.
 
-  JVM-only (.clj, not .cljc) -- see the namespace docstring on
-  `kotoba.lang.base-l2.l2` for why this port doesn't attempt a CLJS
-  branch."
-  (:require [clojure.data.json :as json]))
+  PORTABLE `.cljc` (JVM + CLJS): `rpc-call` and all seven `eth_*` wrappers
+  below are platform-uniform pure request-building/response-parsing over
+  the injected, synchronous `ITransport` (its own docstring never promised
+  a `js/Promise` return the way `kotoba.lang.ipfs/IHttp` explicitly does,
+  so there's no sync/async split to carry here).
+
+  The ONE exception is `wait-for-transaction-receipt`: it blocks the
+  calling thread between polls via `Thread/sleep`, which has no portable
+  equivalent on a single-threaded JS runtime (browser or Node) without
+  turning the whole call chain async (`js/setTimeout` + `js/Promise`
+  recursion) -- out of scope for this pass, since `ITransport` isn't
+  async either. It is therefore `#?(:clj ...)`-gated and simply doesn't
+  exist under `:cljs`; a CLJS host should build its own async poll loop
+  over `eth-get-transaction-receipt` (already portable) using
+  `js/setTimeout`/`js/Promise`."
+  (:require #?(:clj [clojure.data.json :as json])
+            [clojure.string :as str]))
 
 ;; ─── capability seam -- host-injected transport ───────────────────────
 
@@ -45,6 +56,18 @@
 
 (defonce ^:private id-counter (atom 0))
 
+;; ─── JSON (platform shims behind reader conditionals) ─────────────────
+
+(defn- write-json [m]
+  #?(:clj  (json/write-str m)
+     :cljs (.stringify js/JSON (clj->js m))))
+
+(defn- read-json-kw
+  "Parse a JSON object string to a map with KEYWORD keys (uniform clj/cljs)."
+  [s]
+  #?(:clj  (json/read-str s :key-fn keyword)
+     :cljs (js->clj (.parse js/JSON s) :keywordize-keys true)))
+
 (defn rpc-call
   "POST a JSON-RPC 2.0 request `{:method method :params params}` to
   `rpc-url` via `transport` (an `ITransport`) and return the `:result`.
@@ -52,34 +75,42 @@
   object."
   [transport rpc-url method params]
   (let [id (swap! id-counter inc)
-        body (json/write-str {:jsonrpc "2.0" :id id :method method :params params})
+        body (write-json {:jsonrpc "2.0" :id id :method method :params params})
         resp (-post transport rpc-url body)]
     (when-not (<= 200 (:status resp) 299)
       (throw (ex-info (str "[kotoba.lang.base-l2.rpc] HTTP " (:status resp) " calling " method)
                        {:status (:status resp) :body (:body resp) :method method})))
-    (let [parsed (json/read-str (:body resp) :key-fn keyword)]
+    (let [parsed (read-json-kw (:body resp))]
       (if-let [err (:error parsed)]
         (throw (ex-info (str "[kotoba.lang.base-l2.rpc] JSON-RPC error calling " method ": " (:message err))
                          {:error err :method method :params params}))
         (:result parsed)))))
 
-(defn- hex->long ^long [^String hex]
-  (Long/parseLong (if (.startsWith hex "0x") (subs hex 2) hex) 16))
+(defn- hex->long [hex]
+  (let [h (if (str/starts-with? hex "0x") (subs hex 2) hex)]
+    #?(:clj  (Long/parseLong h 16)
+       :cljs (js/parseInt h 16))))
 
-(defn- ->long ^long [x]
+(defn- ->long [x]
   (cond
     (string? x) (hex->long x)
-    (number? x) (long x)
+    (number? x) #?(:clj (long x) :cljs x)
     :else (throw (ex-info "expected hex string or number" {:value x}))))
 
 (defn ->hex
   "Coerce an integral value to its `0x…` JSON-RPC quantity encoding
   (minimal, no leading zeros, `0x0` for zero)."
-  ^String [v]
-  (let [bi (biginteger v)]
-    (if (zero? (.signum bi))
-      "0x0"
-      (str "0x" (.toString bi 16)))))
+  [v]
+  #?(:clj
+     (let [bi (biginteger v)]
+       (if (zero? (.signum bi))
+         "0x0"
+         (str "0x" (.toString bi 16))))
+     :cljs
+     (let [bi (js/BigInt v)]
+       (if (= bi (js/BigInt 0))
+         "0x0"
+         (str "0x" (.toString bi 16))))))
 
 ;; ─── the seven eth_* methods this SDK actually calls ──────────────────
 ;; Every method takes `transport` first (mirrors `kotoba.lang.ipfs`'s
@@ -128,19 +159,26 @@
   [transport rpc-url tx]
   (->long (rpc-call transport rpc-url "eth_estimateGas" [tx])))
 
-(defn wait-for-transaction-receipt
-  "Poll `eth_getTransactionReceipt` for `tx-hash` every `interval-ms`
-  (default 500) until it is non-nil or `timeout-ms` (default 60000)
-  elapses. Mirrors viem's `waitForTransactionReceipt`. Throws ex-info on
-  timeout."
-  ([transport rpc-url tx-hash] (wait-for-transaction-receipt transport rpc-url tx-hash {}))
-  ([transport rpc-url tx-hash {:keys [interval-ms timeout-ms] :or {interval-ms 500 timeout-ms 60000}}]
-   (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
-     (loop []
-       (if-let [receipt (eth-get-transaction-receipt transport rpc-url tx-hash)]
-         receipt
-         (if (> (System/currentTimeMillis) deadline)
-           (throw (ex-info (str "[kotoba.lang.base-l2.rpc] timed out waiting for receipt: " tx-hash)
-                            {:tx-hash tx-hash :timeout-ms timeout-ms}))
-           (do (Thread/sleep ^long interval-ms)
-               (recur))))))))
+;; ─── receipt polling -- JVM-only (blocking Thread/sleep, see ns docstring) ──
+
+#?(:clj
+   (defn wait-for-transaction-receipt
+     "Poll `eth_getTransactionReceipt` for `tx-hash` every `interval-ms`
+     (default 500) until it is non-nil or `timeout-ms` (default 60000)
+     elapses. Mirrors viem's `waitForTransactionReceipt`. Throws ex-info on
+     timeout.
+
+     JVM-only (`Thread/sleep`-blocking): see the namespace docstring for
+     why this one function isn't `:cljs`-portable while the rest of the
+     namespace is."
+     ([transport rpc-url tx-hash] (wait-for-transaction-receipt transport rpc-url tx-hash {}))
+     ([transport rpc-url tx-hash {:keys [interval-ms timeout-ms] :or {interval-ms 500 timeout-ms 60000}}]
+      (let [deadline (+ (System/currentTimeMillis) timeout-ms)]
+        (loop []
+          (if-let [receipt (eth-get-transaction-receipt transport rpc-url tx-hash)]
+            receipt
+            (if (> (System/currentTimeMillis) deadline)
+              (throw (ex-info (str "[kotoba.lang.base-l2.rpc] timed out waiting for receipt: " tx-hash)
+                               {:tx-hash tx-hash :timeout-ms timeout-ms}))
+              (do (Thread/sleep ^long interval-ms)
+                  (recur)))))))))

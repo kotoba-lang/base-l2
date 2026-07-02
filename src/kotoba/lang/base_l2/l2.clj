@@ -11,15 +11,29 @@
   `50-infra/anchor-cron/`, ADR-2605171800 Stage 5b), not a browser dapp.
   Holding a raw private key in an in-page JS/CLJS runtime would in fact
   run against this org's own no-server-key / no-custodial-key doctrine
-  for user-facing flows (see `paymaster.cljc` for the sibling module that
-  *is* a plausible browser consumer, because it never touches a private
-  key itself). See the repo README's \"Clojure/CLJC port\" section for
-  the full CLJS-scope writeup.
+  for user-facing flows (see `paymaster.clj` for the sibling module that
+  *is* conceptually a plausible browser consumer, because it never
+  touches a private key itself -- though it too stays JVM-only for now,
+  transitively via `abi.clj`; see its own docstring). See the repo
+  README's \"Clojure/CLJC port\" section for the full CLJS-scope writeup.
+
+  Independent of the private-key-custody policy reasoning above, this
+  namespace is ALSO directly JVM-only on pure dependency grounds: it
+  requires `eth-crypto.core` (`sign-tx-legacy`/`hex->bytes`/
+  `address-of-privkey`/`keccak256`/`utf8`) and `kotoba.lang.base-l2.abi`,
+  both JVM-only (`eth-crypto` has zero CLJS portability despite its own
+  `.cljc` extension -- see `abi.clj`'s docstring for the full finding).
+  So even a hypothetical browser-safe redesign that never held a raw key
+  would still need those two ported first.
 
   RPC transport: `kotoba.lang.base-l2.rpc` -- a pure JSON-RPC-over-HTTP
   core over an injected `kotoba.lang.base-l2.rpc/ITransport` (host
   supplies e.g. a `babashka.http-client`-backed adapter; this namespace
-  and `rpc.clj` carry zero HTTP-client dep themselves). `AnchorClient`
+  and `rpc.cljc` carry zero HTTP-client dep themselves). `rpc.cljc` is
+  itself portable `.cljc` (JVM + CLJS) except its blocking
+  `wait-for-transaction-receipt`, which this namespace's `anchor-mst-root!`
+  calls -- irrelevant to this namespace's own JVM-only status, since this
+  namespace is already blocked by the reasons above regardless. `AnchorClient`
   carries the transport alongside `rpc-url`/`contract`/`private-key` --
   every call below reads `:transport` off `client` rather than taking it
   as a separate argument, since `client` is already the natural
