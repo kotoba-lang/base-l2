@@ -1,5 +1,12 @@
 (ns kotoba.lang.base-l2.jvm-http-transport
-  "Reference JVM host adapter for `kotoba.lang.base-l2.rpc/ITransport`,
+  "JVM-only by design (not a compliance gap): a genuine host-side network
+  adapter -- it does real socket I/O via `babashka.http-client` -- not
+  pure core logic, so it correctly stays `.clj` even though
+  `kotoba.lang.base-l2.rpc` (the protocol it implements) is now portable
+  `.cljc`. A CLJS host would supply its own `ITransport` (e.g. `fetch`
+  -backed), not this one.
+
+  Reference JVM host adapter for `kotoba.lang.base-l2.rpc/ITransport`,
   backed by `babashka.http-client`. Lives in the TEST tree, not `src/` --
   the pure `rpc.clj`/`l2.clj`/`paymaster.clj` core carries zero
   HTTP-client dep (`org.babashka/http-client` is a `:test`-alias-only dep

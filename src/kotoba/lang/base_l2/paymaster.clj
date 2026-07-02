@@ -34,15 +34,24 @@
   CLJS SCOPE (deliberately deferred, not implemented here): despite the
   above, this port stays JVM-only (.clj) for now because
   `sponsored-write-contract!` still needs to ABI-encode arbitrary
-  caller-supplied args (`kotoba.lang.base-l2.abi`), and that encoder
-  needs arbitrary-precision integer arithmetic (uint256 exceeds a JS
-  safe integer / a bare `js/BigInt` port isn't free) to stay correct --
-  out of scope for this pass. If/when a concrete CLJS bundler-dapp
-  consumer materializes: split this namespace into a CLJC orchestration
-  layer (the `Bundler`/`SmartAccount` protocols + `sponsored-write-contract!`,
-  zero crypto, already platform-agnostic as written) over a per-platform
-  ABI-encoding implementation (this JVM one, plus a `:cljs` one added at
-  that time)."
+  caller-supplied args via `kotoba.lang.base-l2.abi`, which is itself
+  JVM-only -- a `.cljc` namespace can never `:require` a `.clj`-only one
+  from its `:cljs` branch, so that alone transitively blocks this
+  namespace regardless of how this file itself is written. (Earlier
+  reasoning here cited uint256 exceeding a JS safe integer / a bare
+  `js/BigInt` port \"not being free\" as the blocker -- that's real but
+  secondary; the harder blocker, confirmed by inspecting `abi.clj` and its
+  `eth-crypto.core` dependency directly, is that `abi/function-selector`
+  and address-decoding need a genuine Keccak-256, and `eth-crypto` has
+  ZERO CLJS portability despite its own `.cljc` extension -- see
+  `abi.clj`'s namespace docstring for the full finding.) If/when a
+  concrete CLJS bundler-dapp consumer materializes: split `abi.clj`'s
+  encode/decode plumbing into a CLJS-portable half (feasible, `js/BigInt`
+  + `js/Uint8Array`) plus a JVM-only half gated on a real CLJS Keccak-256
+  becoming available in this org (not yet, per `eth-crypto`'s own
+  docstring) -- only then can this namespace (the `Bundler`/`SmartAccount`
+  protocols + `sponsored-write-contract!`, zero crypto, already
+  platform-agnostic as written) actually become `.cljc` too."
   (:require [kotoba.lang.base-l2.abi :as abi]))
 
 ;; ─── injection-point protocols (mirrors SponsoredBundle's fields) ─────

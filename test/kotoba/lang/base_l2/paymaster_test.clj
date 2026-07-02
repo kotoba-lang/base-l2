@@ -1,5 +1,10 @@
 (ns kotoba.lang.base-l2.paymaster-test
-  "Exercises kotoba.lang.base-l2.paymaster against in-memory fake
+  "JVM-only (mirrors `kotoba.lang.base-l2.paymaster`, which it tests, and
+  which is itself JVM-only only transitively via `kotoba.lang.base-l2.abi`
+  -- see both namespaces' docstrings): requires `kotoba.lang.base-l2.abi`
+  directly to assert on ABI-encoded calldata below.
+
+  Exercises kotoba.lang.base-l2.paymaster against in-memory fake
   `Bundler`/`SmartAccount` implementations (this module never talks to a
   real bundler/paymaster provider itself -- both are dependency-injected
   by the caller, same as `paymaster.ts`, so a real HTTP mock isn't the

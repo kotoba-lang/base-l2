@@ -23,7 +23,32 @@
   All known-answer vectors this namespace is tested against were
   generated with viem itself (`encodeAbiParameters` / `decodeFunctionResult`
   / `toFunctionSelector`) -- see test/resources/base_l2/abi-vectors.json
-  and its generator note in the test namespace."
+  and its generator note in the test namespace.
+
+  JVM-only (`.clj`, not `.cljc`): `function-selector` needs a real
+  Keccak-256 (`eth/keccak256`, via `kotoba-lang/eth-crypto`) and
+  `decode-static-word`'s `address` branch needs EIP-55 checksumming
+  (`eth/eip55-checksum`, keccak256-based too) -- both genuine crypto
+  primitives, not formatting. `eth-crypto.core` is itself JVM/babashka-only
+  despite its own `.cljc` extension: inspected directly, it carries ZERO
+  `#?()` reader conditionals and leans on `java.math.BigInteger` /
+  `StringBuilder` / `System/arraycopy` throughout (its own docstring only
+  claims \"runs unchanged under babashka AND the JVM\", never CLJS). The
+  rest of this namespace's own arithmetic (`java.math.BigInteger`-based
+  256-bit words, raw `byte-array`/`System/arraycopy`/
+  `java.util.Arrays/copyOfRange`) is, on its own, portable-with-effort
+  (`js/BigInt` + `js/Uint8Array` have workable CLJS analogs) -- but
+  splitting the two keccak-dependent functions out into a separate
+  CLJS-blocked file while leaving the rest `.cljc` would fragment a single
+  narrow codec across files for a consumer this SDK doesn't have yet (no
+  CLJS caller exists in this repo), and would leave the `.cljc` half
+  silently non-functional for `address`-typed values anyway (every real
+  call site here -- `l2.clj`'s `anchor`/`anchors`, `paymaster.clj`'s
+  arbitrary caller args -- touches `address` at least once). Matches the
+  same-wave precedent set by `eth-crypto`/`pqh`/`witness-quorum`/
+  `checkpointer`: real crypto/BigInteger-heavy \"pure\" logic in this org
+  stays `.clj` rather than being force-split for a CLJS consumer that
+  doesn't exist yet."
   (:require [eth-crypto.core :as eth]))
 
 (def ^:private ^java.math.BigInteger TWO-256
