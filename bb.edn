@@ -1,5 +1,0 @@
-{:paths ["src" "test"]
- :tasks
- {test
-  {:doc "Run kotoba.lang.base-l2 tests (mock JSON-RPC JVM orchestration)."
-   :task (shell "clojure -M:test")}}}
