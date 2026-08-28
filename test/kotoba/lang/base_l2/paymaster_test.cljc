@@ -1,14 +1,15 @@
 (ns kotoba.lang.base-l2.paymaster-test
-  "JVM-only (mirrors `kotoba.lang.base-l2.paymaster`, which it tests, and
-  which is itself JVM-only only transitively via `kotoba.lang.base-l2.abi`
-  -- see both namespaces' docstrings): requires `kotoba.lang.base-l2.abi`
-  directly to assert on ABI-encoded calldata below.
+  "PORTABLE (`.cljc`, :clj + :cljs) -- mirrors
+  `kotoba.lang.base-l2.paymaster`, which it tests, and which became
+  portable the moment `kotoba.lang.base-l2.abi` did (it holds no crypto
+  and no platform interop of its own). Requires `abi` directly to assert
+  on ABI-encoded calldata below.
 
   Exercises kotoba.lang.base-l2.paymaster against in-memory fake
   `Bundler`/`SmartAccount` implementations (this module never talks to a
   real bundler/paymaster provider itself -- both are dependency-injected
-  by the caller, same as `paymaster.ts`, so a real HTTP mock isn't the
-  right test double here; a `reify` of the two protocols is)."
+  by the caller, so a real HTTP mock is not the right test double here; a
+  `reify` of the two protocols is)."
   (:require [clojure.test :refer [deftest is testing]]
             [kotoba.lang.base-l2.paymaster :as pm]
             [kotoba.lang.base-l2.abi :as abi]))
@@ -86,7 +87,7 @@
           bundle {:bundler bundler
                   :smart-account (fake-smart-account "0xSMARTACCOUNT")
                   :paymaster-address "0xPAYMASTER"}]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"paymaster allowlist"
+      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"paymaster allowlist"
                             (pm/sponsored-write-contract!
                              {:address "0xMEMBERSHIP"
                               :function-signature "join(bytes32,string)"
