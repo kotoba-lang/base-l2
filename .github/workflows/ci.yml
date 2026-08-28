@@ -10,6 +10,7 @@ permissions:
 
 jobs:
   test:
+    name: clojure -M:test (JVM)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -18,3 +19,30 @@ jobs:
           cli: latest
       - run: clojure -M:lint
       - run: clojure -M:test
+
+  cljs:
+    name: nbb (ClojureScript — same viem vectors)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - uses: DeLaGuardo/setup-clojure@13.4
+        with:
+          cli: latest
+      - name: Install nbb
+        run: npm install -g nbb
+
+      # Not a smoke test: this runs the SHARED .cljc suite, so every
+      # viem-generated known-answer vector that gates the JVM codec has to
+      # pass here too — with Keccak-256 on js/BigInt lanes and the
+      # division-free two's-complement fold. A wrong lane or a wrong head/tail
+      # offset cannot accidentally reproduce viem's output.
+      #
+      # The classpath comes from `clojure -Spath` rather than a literal
+      # `src:test` because kotoba-lang/eth-crypto is a git dep and its .cljs
+      # sources have to be on it. Run from the repo root: the abi fixture is
+      # read by relative path under :cljs.
+      - name: Run tests under ClojureScript
+        run: nbb --classpath "$(clojure -A:test -Spath)" bin/run_tests.cljs
