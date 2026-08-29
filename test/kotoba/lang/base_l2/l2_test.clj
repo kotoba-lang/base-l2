@@ -24,7 +24,7 @@
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
             [clojure.string :as str]
             [clojure.java.io :as io]
-            [clojure.data.json :as json]
+            [json.data-json :as json]
             [kotoba.lang.base-l2.l2 :as l2]
             [kotoba.lang.base-l2.rpc :as rpc]
             [kotoba.lang.base-l2.abi :as abi]
