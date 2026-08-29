@@ -18,7 +18,7 @@
   coverage of the same code against a real babashka.http-client-backed
   adapter (kotoba.lang.base-l2.jvm-http-transport)."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.data.json :as json]
+            [json.data-json :as json]
             [kotoba.lang.base-l2.rpc :as rpc]))
 
 (defn- fake-transport

@@ -15,7 +15,7 @@
   dump the results with `JSON.stringify`.
 
   Fixture loading is the only platform-specific thing here: `io/resource`
-  + `clojure.data.json` under :clj, `fs.readFileSync` + `JSON.parse`
+  + `json.data-json` under :clj, `fs.readFileSync` + `JSON.parse`
   under :cljs (nbb), both yielding the same keyword-keyed map. Run the
   :cljs side from the repo root, where the relative fixture path resolves:
   `nbb --classpath src:test bin/run_tests.cljs`."
@@ -23,7 +23,7 @@
             [clojure.string :as str]
             [kotoba.lang.base-l2.abi :as abi]
             [eth-crypto.core :as eth]
-            #?@(:clj [[clojure.data.json :as json]
+            #?@(:clj [[json.data-json :as json]
                       [clojure.java.io :as io]]
                 :cljs [["fs" :as fs]])))
 

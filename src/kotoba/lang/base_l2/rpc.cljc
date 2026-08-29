@@ -14,7 +14,7 @@
   wire. The library itself performs ZERO network I/O and carries ZERO
   HTTP-client/vendor dep -- `babashka.http-client` (or any other HTTP
   lib) is the HOST's dependency for a reference adapter, not this pure
-  core's. JSON is via `clojure.data.json` (JVM) / `js/JSON` (CLJS) --
+  core's. JSON is via `json.data-json` (JVM) / `js/JSON` (CLJS) --
   data-only, policy-fine (same split `kotoba.lang.ipfs` makes) -- behind
   the `write-json`/`read-json-kw` reader-conditional shims below.
 
@@ -39,7 +39,7 @@
   exist under `:cljs`; a CLJS host should build its own async poll loop
   over `eth-get-transaction-receipt` (already portable) using
   `js/setTimeout`/`js/Promise`."
-  (:require #?(:clj [clojure.data.json :as json])
+  (:require #?(:clj [json.data-json :as json])
             [clojure.string :as str]))
 
 ;; ─── capability seam -- host-injected transport ───────────────────────
