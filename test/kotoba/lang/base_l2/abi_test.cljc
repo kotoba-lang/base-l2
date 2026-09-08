@@ -20,7 +20,7 @@
   :cljs side from the repo root, where the relative fixture path resolves:
   `nbb --classpath src:test bin/run_tests.cljs`."
   (:require [clojure.test :refer [deftest is testing]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [kotoba.lang.base-l2.abi :as abi]
             [eth-crypto.core :as eth]
             #?@(:clj [[json.data-json :as json]
@@ -32,7 +32,7 @@
      :cljs (js->clj (js/JSON.parse (fs/readFileSync "test/resources/base_l2/abi-vectors.json" "utf8"))
                     :keywordize-keys true)))
 
-(defn- hex= [a b] (= (str/lower-case a) (str/lower-case b)))
+(defn- hex= [a b] (= (str/lower a) (str/lower b)))
 
 (defn- big=
   "Compare a decimal-string expectation against a decoded big integer,
