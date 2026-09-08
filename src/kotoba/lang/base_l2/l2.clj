@@ -59,7 +59,7 @@
   chainId via RPC calls unless the caller supplies overrides. EIP-1559
   support can be added later (bump `eth-crypto`, add a `sign-tx-eip1559`
   there) if a deployment needs the fee-market gas savings."
-  (:require [clojure.string :as str]
+  (:require [kotoba.lang.text :as str]
             [kotoba.lang.base-l2.rpc :as rpc]
             [kotoba.lang.base-l2.abi :as abi]
             [eth-crypto.core :as eth]))

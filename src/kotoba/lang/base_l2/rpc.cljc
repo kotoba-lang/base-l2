@@ -40,7 +40,7 @@
   over `eth-get-transaction-receipt` (already portable) using
   `js/setTimeout`/`js/Promise`."
   (:require #?(:clj [json.data-json :as json])
-            [clojure.string :as str]))
+            [kotoba.lang.text :as str]))
 
 ;; ─── capability seam -- host-injected transport ───────────────────────
 
