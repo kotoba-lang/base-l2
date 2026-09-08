@@ -22,7 +22,7 @@
   unit coverage of the same rpc.clj JSON-RPC envelope logic against a
   fake `ITransport`."
   (:require [clojure.test :refer [deftest is testing use-fixtures]]
-            [clojure.string :as str]
+            [kotoba.lang.text :as str]
             [clojure.java.io :as io]
             [json.data-json :as json]
             [kotoba.lang.base-l2.l2 :as l2]
@@ -193,8 +193,8 @@
         (is (= 999N (bigint (:block-number found))))
         (is (= 42N (bigint (:batch-size found))))
         (is (= 1735689600N (bigint (:anchored-at found))))
-        (is (= (str/lower-case (get-in abi-vectors [:decodeFunctionResult :anchors :anchorerAddr]))
-               (str/lower-case (:tx-anchorer-address found))))))))
+        (is (= (str/lower (get-in abi-vectors [:decodeFunctionResult :anchors :anchorerAddr]))
+               (str/lower (:tx-anchorer-address found))))))))
 
 (deftest find-anchor-for-root-not-anchored-test
   (testing "returns nil when blockNumber == 0 (never anchored)"
