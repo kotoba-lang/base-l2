@@ -38,7 +38,7 @@ pinning the pre-CLJS revision for two months. **The blocker was a stale pin,
 not a missing primitive.** Advancing the pin unblocked `abi`; `abi` unblocked
 `paymaster` with no change to a single line of its code.
 
-The `.cljc` claim is verified, not asserted: `bin/run_tests.cljs` runs the
+The `.cljc` claim is verified, not asserted: `bin/run_tests.cljk` runs the
 SHARED suite under nbb, so the same viem-generated known-answer vectors gate
 both platforms (CI job `cljs`).
 
@@ -57,5 +57,5 @@ clojure -M:test     # JVM: viem cross-checked ABI + signing vectors; mock JSON-R
 
 # ClojureScript: the SAME .cljc suite and the SAME viem vectors.
 # Run from the repo root — the abi fixture is read by relative path under :cljs.
-nbb --classpath "$(clojure -A:test -Spath)" bin/run_tests.cljs
+nbb --classpath "$(clojure -A:test -Spath)" bin/run_tests.cljk
 ```
