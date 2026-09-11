@@ -1,6 +1,6 @@
 {
   "private": true,
   "scripts": {
-    "test": "clojure -M:test"
+    "test": "kbb -M:test"
   }
 }

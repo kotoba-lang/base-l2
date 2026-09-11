@@ -8,7 +8,7 @@
 ;; evidence the CLJS path is real, not that it merely compiles.
 ;;
 ;; Run from the repo ROOT (the abi fixture is read by relative path):
-;;   nbb --classpath src:test bin/run_tests.cljk
+;;   kbb --backend sci --classpath src:test bin/run_tests.cljk
 ;;
 ;; `kotoba.lang.base-l2.l2` is deliberately NOT here: it is .clj-only on
 ;; purpose (it holds a raw private key). `rpc` is .cljc but its test uses a

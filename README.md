@@ -52,10 +52,10 @@ implementation. Reuses `kotoba-lang/eth-crypto` (Keccak-256 / secp256k1 / RLP / 
 ## Develop
 
 ```bash
-clojure -M:lint     # clj-kondo (errors fail)
-clojure -M:test     # JVM: viem cross-checked ABI + signing vectors; mock JSON-RPC
+kbb -M:lint     # clj-kondo (errors fail)
+kbb -M:test     # JVM: viem cross-checked ABI + signing vectors; mock JSON-RPC
 
 # ClojureScript: the SAME .cljc suite and the SAME viem vectors.
 # Run from the repo root — the abi fixture is read by relative path under :cljs.
-nbb --classpath "$(clojure -A:test -Spath)" bin/run_tests.cljk
+kbb --backend sci --classpath "$(kbb -A:test -Spath)" bin/run_tests.cljk
 ```

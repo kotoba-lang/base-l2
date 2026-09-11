@@ -2,7 +2,7 @@
   "JVM-only: exercises kotoba.lang.base-l2.l2 against a real,
   dependency-free mock JSON-RPC HTTP server (com.sun.net.httpserver.HttpServer,
   part of the JDK -- same technique kotoba-lang/ipfs's test suite uses;
-  babashka cannot load this class, hence `clojure -M:test`, not `bb`), via
+  babashka cannot load this class, hence `kbb -M:test`, not `bb`), via
   the reference `kotoba.lang.base-l2.jvm-http-transport` `ITransport`
   adapter (`babashka.http-client`-backed) -- a real end-to-end socket
   round-trip through the injected-transport core, not a fake.
