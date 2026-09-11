@@ -45,4 +45,4 @@ jobs:
       # sources have to be on it. Run from the repo root: the abi fixture is
       # read by relative path under :cljs.
       - name: Run tests under ClojureScript
-        run: nbb --classpath "$(clojure -A:test -Spath)" bin/run_tests.cljs
+        run: nbb --classpath "$(clojure -A:test -Spath)" bin/run_tests.cljk
