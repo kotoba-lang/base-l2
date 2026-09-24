@@ -10,7 +10,7 @@
   real bundler/paymaster provider itself -- both are dependency-injected
   by the caller, so a real HTTP mock is not the right test double here; a
   `reify` of the two protocols is)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.base-l2.paymaster :as pm]
             [kotoba.lang.base-l2.abi :as abi]))
 

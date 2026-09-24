@@ -21,7 +21,7 @@
   See `kotoba.lang.base-l2.rpc-test` for lighter-weight, no-real-network
   unit coverage of the same rpc.clj JSON-RPC envelope logic against a
   fake `ITransport`."
-  (:require [clojure.test :refer [deftest is testing use-fixtures]]
+  (:require [kotoba.test :refer [deftest is testing use-fixtures]]
             [kotoba.lang.text :as str]
             [clojure.java.io :as io]
             [json.data-json :as json]
