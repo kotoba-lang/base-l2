@@ -21,7 +21,7 @@
   See `kotoba.lang.base-l2.rpc-test` for lighter-weight, no-real-network
   unit coverage of the same rpc.clj JSON-RPC envelope logic against a
   fake `ITransport`."
-  (:require [kotoba.test :refer [deftest is testing use-fixtures]]
+  (:require [kotoba.bytes :as kbytes] [kotoba.test :refer [deftest is testing use-fixtures]]
             [kotoba.lang.text :as str]
             [clojure.java.io :as io]
             [json.data-json :as json]
@@ -57,7 +57,7 @@
     (.toByteArray out)))
 
 (defn- respond! [^HttpExchange exchange status ^String body]
-  (let [bytes (.getBytes body "UTF-8")]
+  (let [bytes (kbytes/utf8-bytes body)]
     (.sendResponseHeaders exchange status (count bytes))
     (with-open [os (.getResponseBody exchange)]
       (.write os bytes))))
@@ -82,7 +82,7 @@
 (def ^:private server (atom nil))
 
 (defn- mock-rpc-handler [^HttpExchange exchange]
-  (let [body (String. (slurp-bytes (.getRequestBody exchange)) "UTF-8")
+  (let [body (kbytes/utf8-string (slurp-bytes (.getRequestBody exchange)))
         {:keys [id method params]} (json/read-str body :key-fn keyword)
         result (@handler-atom method params)]
     (respond! exchange 200 (rpc-response id result))))
