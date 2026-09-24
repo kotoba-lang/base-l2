@@ -19,7 +19,7 @@
   under :cljs (nbb), both yielding the same keyword-keyed map. Run the
   :cljs side from the repo root, where the relative fixture path resolves:
   `kbb --backend sci --classpath src:test bin/run_tests.cljk`."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [kotoba.lang.text :as str]
             [kotoba.lang.base-l2.abi :as abi]
             [eth-crypto.core :as eth]

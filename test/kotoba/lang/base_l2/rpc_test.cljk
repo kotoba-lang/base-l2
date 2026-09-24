@@ -17,7 +17,7 @@
   HttpServer, complementing kotoba.lang.base-l2.l2-test's end-to-end
   coverage of the same code against a real babashka.http-client-backed
   adapter (kotoba.lang.base-l2.jvm-http-transport)."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [kotoba.test :refer [deftest is testing]]
             [json.data-json :as json]
             [kotoba.lang.base-l2.rpc :as rpc]))
 
