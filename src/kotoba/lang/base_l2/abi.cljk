@@ -42,7 +42,7 @@
   `byte-array`). Every decode entry point normalizes its input through
   `->byte-vec`, so a :clj byte-array, a :cljs int vector, and a 0x-hex
   string are all accepted on both platforms."
-  (:require [eth-crypto.core :as eth]))
+  (:require [kotoba.bytes :as kbytes] [eth-crypto.core :as eth]))
 
 ;; ─── 256-bit constants ───────────────────────────────────────────────
 
@@ -143,7 +143,7 @@
     (mapv #(if (and (>= % 0) (< % n)) (nth data %) 0) (range from to))))
 
 (defn- byte-vec->utf8 [bv]
-  #?(:clj (String. (byte-array (mapv unchecked-byte bv)) "UTF-8")
+  #?(:clj (kbytes/utf8-string (byte-array (mapv unchecked-byte bv)))
      :cljs (.decode (js/TextDecoder.) (js/Uint8Array.from (to-array bv)))))
 
 ;; ─── per-type static/dynamic classification + word-level codecs ──────
