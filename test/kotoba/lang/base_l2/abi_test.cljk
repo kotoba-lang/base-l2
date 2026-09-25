@@ -24,7 +24,7 @@
             [kotoba.lang.base-l2.abi :as abi]
             [eth-crypto.core :as eth]
             #?@(:clj [[json.data-json :as json]
-                      [clojure.java.io :as io]]
+                      [kotoba.io :as io]]
                 :cljs [["fs" :as fs]])))
 
 (def ^:private vectors
@@ -161,9 +161,9 @@
 
 (deftest unsupported-type-test
   (testing "arrays/tuples are explicitly out of scope"
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+    (is (thrown? js/Error
                  (abi/encode-abi-params ["uint256[]"] [[1 2 3]])))
-    (is (thrown? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error)
+    (is (thrown? js/Error
                  (abi/decode-abi-params ["(uint256,address)"] "0x00")))))
 
 (deftest encode-returns-the-platform-byte-representation

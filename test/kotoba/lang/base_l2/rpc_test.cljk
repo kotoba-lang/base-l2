@@ -17,7 +17,7 @@
   HttpServer, complementing kotoba.lang.base-l2.l2-test's end-to-end
   coverage of the same code against a real babashka.http-client-backed
   adapter (kotoba.lang.base-l2.jvm-http-transport)."
-  (:require [kotoba.test :refer [deftest is testing]]
+  (:require [kotoba.lang.error :as kerror] [kotoba.test :refer [deftest is testing]]
             [json.data-json :as json]
             [kotoba.lang.base-l2.rpc :as rpc]))
 
@@ -50,7 +50,7 @@
 (deftest rpc-call-throws-on-http-error-test
   (testing "throws ex-info on a non-2xx transport response"
     (let [transport (fake-transport (fn [_url _body] {:status 500 :body "boom"}))
-          ex (is (thrown? clojure.lang.ExceptionInfo (rpc/rpc-call transport "http://rpc" "eth_gasPrice" [])))]
+          ex (is (thrown? kerror/ExceptionInfo (rpc/rpc-call transport "http://rpc" "eth_gasPrice" [])))]
       (is (= 500 (:status (ex-data ex)))))))
 
 (deftest rpc-call-throws-on-json-rpc-error-object-test
@@ -60,7 +60,7 @@
                        {:status 200
                         :body (json/write-str {:jsonrpc "2.0" :id 1
                                                 :error {:code -32000 :message "execution reverted"}})}))
-          ex (is (thrown-with-msg? clojure.lang.ExceptionInfo #"execution reverted"
+          ex (is (thrown-with-msg? kerror/ExceptionInfo #"execution reverted"
                                    (rpc/rpc-call transport "http://rpc" "eth_call" [])))]
       (is (= "execution reverted" (get-in (ex-data ex) [:error :message]))))))
 
@@ -130,6 +130,6 @@
 (deftest wait-for-transaction-receipt-timeout-test
   (testing "throws ex-info if the receipt never appears before timeout-ms"
     (let [transport (fake-transport (ok-result nil))]
-      (is (thrown-with-msg? clojure.lang.ExceptionInfo #"timed out"
+      (is (thrown-with-msg? kerror/ExceptionInfo #"timed out"
                             (rpc/wait-for-transaction-receipt transport "http://rpc" "0xhash"
                                                                {:interval-ms 1 :timeout-ms 10}))))))

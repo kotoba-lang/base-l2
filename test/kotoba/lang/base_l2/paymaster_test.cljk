@@ -87,7 +87,7 @@
           bundle {:bundler bundler
                   :smart-account (fake-smart-account "0xSMARTACCOUNT")
                   :paymaster-address "0xPAYMASTER"}]
-      (is (thrown-with-msg? #?(:clj clojure.lang.ExceptionInfo :cljs js/Error) #"paymaster allowlist"
+      (is (thrown-with-msg? js/Error #"paymaster allowlist"
                             (pm/sponsored-write-contract!
                              {:address "0xMEMBERSHIP"
                               :function-signature "join(bytes32,string)"
